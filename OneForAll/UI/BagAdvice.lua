@@ -227,7 +227,10 @@ function BA.Advice(id, link, tt)
     if state ~= "done" and state ~= "manual" then return with(L["Keep"], L["a Library Book to turn in"]), "keep" end
   end
   if classID == 12 or bind == 4 then
-    if questsDone then return with(L["Probably safe to destroy"], L["its quest is finished"]), "drop" end
+    if questsDone then -- every quest it is for is finished: it can go
+      if price > 0 then return with(string.format(L["Sell to a merchant (%s)"], money(price * count)), L["its quest is finished"]), "sell" end
+      return with(L["Safe to destroy"], L["its quest is finished"]), "drop"
+    end
     return with(L["Keep"], L["a quest item"]), "keep"
   end
 
