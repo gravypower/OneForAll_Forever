@@ -2334,6 +2334,8 @@ local function addItemLines(tt, link)
   if FLT.IsOnWishlist and FLT.GearValue and FLT.GearValue.WISH and FLT.IsOnWishlist(id) then tt:AddLine(FLT.GearValue.WISH .. L["Wishlist"], 1, 0.82, 0.25) end
   if QoL.Get("sellJunk") and junkList()[id] then tt:AddLine(string.format(L["On your junk list (%s to take it off)"], QoL.JunkKeyText()), 0.62, 0.62, 0.62) end
   if FLT.CraftList then FLT.CraftList.TooltipLine(tt, id) end -- only while something is planned
+  -- what to do with an item you carry, and how many lie in the bank (UI/BagAdvice.lua)
+  if QoL.Get("bagAdvice") and FLT.BagAdvice then pcall(FLT.BagAdvice.TooltipLine, tt, id, link) end
   if QoL.Get("recipeTip") then
     local r = recipeByItem(id)
     if r then
@@ -2526,7 +2528,7 @@ local function setupTooltips()
     pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", function(tt) pcall(addTargetLine, tt); pcall(addQuestLines, tt) end)
   end
   local function handler(tt)
-    if not (QoL.Get("bossDrops") or QoL.Get("recipeTip") or QoL.Get("gearValue") or QoL.Get("deValue")) then return end
+    if not (QoL.Get("bossDrops") or QoL.Get("recipeTip") or QoL.Get("gearValue") or QoL.Get("deValue") or QoL.Get("bagAdvice")) then return end
     if not tt or not tt.GetItem then return end
     local _, link = tt:GetItem()
     addItemLines(tt, link)

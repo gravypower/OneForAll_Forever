@@ -131,6 +131,7 @@ do
   for i = 0, (tonumber(NUM_BANKBAGSLOTS) or 7) - 1 do BANK[#BANK + 1] = first + i end
   if BI and BI.Reagentbank then BANK[#BANK + 1] = BI.Reagentbank end
 end
+CL.BANK_BAGS = BANK -- also read by UI/BagAdvice.lua
 
 -- what I have of an item: total and the places (for the tooltip). This character: bags live, bank as last seen.
 local places = {} -- reused
