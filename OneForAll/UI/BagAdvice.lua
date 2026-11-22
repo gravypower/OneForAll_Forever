@@ -5,6 +5,8 @@ local L = FLT.L or setmetatable({}, { __index = function(_, k) return k end }) -
 -- "Sell to a merchant (1s 20c)", "Mail it to Smörgi - material for Tailoring", "Keep - needed for a quest in your log" -
 -- and a second line with how many of it lie in your bank.
 -- Quality of Life > Tooltips > "Bag advice" (QoL key bagAdvice), off by default.
+--  * A material of a profession you have: whether a recipe gives you a skill point with it at your skill - a sure one
+--    (orange recipe), a likely one (yellow), a rare one (green) - or none any more (grey: sell it).
 --  * Only for items you have (in the bags or worn); nothing for items it knows nothing useful about.
 --  * It only reads what OneForAll already knows: your professions and those of your other characters, the quest items
 --    of Data/QuestDrops.lua, Library Books, the Gear Value, your junk list, merchant prices and (with Auctionator)
@@ -21,18 +23,17 @@ local function Q(key) return FLT.QoL and FLT.QoL.Get and FLT.QoL.Get(key) end
 local function money(c) return FLT.QoL and FLT.QoL.Money and FLT.QoL.Money(c) or tostring(c) end
 
 -- Indexes over the data, each made when first needed ------------------------------------
--- [itemID] = { [profession] = highest skill at which a recipe using it still gives skill-ups, or true when unknown }
+-- [itemID] = { [profession] = { recipe, ... } }: the recipes that use an item as material
 local reagents
 local function reagentProfs(id)
   if not reagents then
     reagents = {}
     for prof, list in pairs(FLT.PROFESSION_RECIPES or {}) do
       for _, r in ipairs(list) do
-        local grey = tonumber(r.gr) or 0
         for _, g in ipairs(r.r or {}) do
           local t = reagents[g[1]]; if not t then t = {}; reagents[g[1]] = t end
-          local old = t[prof]
-          if grey <= 0 or old == true then t[prof] = true elseif not old or grey > old then t[prof] = grey end
+          local l = t[prof]; if not l then l = {}; t[prof] = l end
+          l[#l + 1] = r
         end
       end
     end
@@ -167,6 +168,29 @@ local function profList(t)
   return table.concat(names, ", ")
 end
 
+-- What a material does for my profession: the best of the recipes that use it, at my skill.
+-- rank 6 = a recipe I can make that is orange (a skill point every time), 5 = yellow (most times), 4 = green (rarely),
+-- 3 = gives skill points but I have not learned the recipe, 2 = only recipes for a higher skill (req),
+-- 1 = used, skill colours unknown, 0 = every recipe is grey (no skill points any more). r = that recipe.
+local function skillUse(list, skill, known)
+  local best = { rank = 0 }
+  local unread = next(known) == nil -- the profession window was never opened: every recipe within the skill counts
+  for _, r in ipairs(list) do
+    local req, y, g, gr = tonumber(r.req) or tonumber(r.y) or 1, tonumber(r.y) or 0, tonumber(r.g) or 0, tonumber(r.gr) or 0
+    local rank
+    if gr <= 0 then rank = 1
+    elseif skill >= gr then rank = 0
+    elseif req > skill then rank = 2
+    elseif not (known[r.s] or r.start or unread) then rank = 3
+    elseif skill < y then rank = 6
+    elseif skill < g then rank = 5
+    else rank = 4 end
+    -- the better rank; of the recipes for later the one I reach first
+    if rank > best.rank or (rank == 2 and best.rank == 2 and req < best.req) then best = { rank = rank, r = r, req = req } end
+  end
+  return best
+end
+
 -- The advice: text, kind (COLOR) or nil ------------------------------------------------------
 function BA.Advice(id, link, tt)
   local get = GetItemInfo or (C_Item and C_Item.GetItemInfo)
@@ -253,18 +277,30 @@ function BA.Advice(id, link, tt)
     return nil
   end
 
-  -- materials of the profession recipes
+  -- materials of the profession recipes: does it give me a skill point?
   local profs = reagentProfs(id)
   if profs then
-    local greyFor
-    for prof, grey in pairs(profs) do
-      local skill = mySkill(prof)
+    local best, bestProf, greyFor
+    for prof, list in pairs(profs) do
+      local skill, known = mySkill(prof)
       if skill then
-        if grey == true or skill < grey then
-          return with(L["Keep (put spare ones in your bank)"], string.format(L["material for your %s"], L[prof])), "keep"
-        end
-        greyFor = greyFor or prof
+        local u = skillUse(list, skill, known)
+        if u.rank == 0 then greyFor = greyFor or prof
+        elseif not best or u.rank > best.rank then best, bestProf = u, prof end
       end
+    end
+    if best then
+      local p, rn = L[bestProf], best.r and (FLT.Name and FLT.Name(best.r.n) or best.r.n) or "?"
+      if best.rank >= 4 then
+        local how = best.rank == 6 and L["a sure skill point in your %s (%s)"] or best.rank == 5 and L["a likely skill point in your %s (%s)"]
+          or L["a rare skill point in your %s (%s)"]
+        return with(L["Keep (put spare ones in your bank)"], string.format(how, p, rn)), "use"
+      elseif best.rank == 3 then
+        return with(L["Keep (put spare ones in your bank)"], string.format(L["skill points in your %s once you learn %s"], p, rn)), "keep"
+      elseif best.rank == 2 then
+        return with(L["Keep (put it in your bank)"], string.format(L["for your %s from skill %d (%s)"], p, best.req, rn)), "keep"
+      end
+      return with(L["Keep (put spare ones in your bank)"], string.format(L["material for your %s"], p)), "keep"
     end
     if not bound then
       for prof in pairs(profs) do
@@ -274,7 +310,7 @@ function BA.Advice(id, link, tt)
     end
     local text, k = sell(id, price, count, bound, 2) -- materials: the auction house first
     if text then
-      if greyFor then return with(text, string.format(L["your %s gets no more skill-ups from it"], L[greyFor])), k end
+      if greyFor then return with(text, string.format(L["no more skill points in your %s from it"], L[greyFor])), k end
       return with(text, string.format(L["material for %s, not your profession"], profList(profs))), k
     end
     return nil
