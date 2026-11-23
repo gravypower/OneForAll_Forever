@@ -68,6 +68,15 @@ local function questsOf(id)
   end
   return questItems[id]
 end
+-- [itemID] = true: made by a Cooking recipe (may give a buff)
+local cooked
+local function cookedFood(id)
+  if not cooked then
+    cooked = {}
+    for _, r in ipairs(FLT.PROFESSION_RECIPES and FLT.PROFESSION_RECIPES["Cooking"] or {}) do if r.i then cooked[r.i] = true end end
+  end
+  return cooked[id] or false
+end
 local books
 local function bookOf(id)
   if not books then
@@ -121,20 +130,24 @@ local function itemCount(id)
   local n = (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(id)) or (GetItemCount and GetItemCount(id)) or 0
   return tonumber(n) or 0
 end
--- what the tooltip itself says: soulbound, starts a quest (the client's own texts, any language)
+-- what the tooltip itself says: soulbound, starts a quest (the client's own texts, any language); and, in English
+-- clients only, food / drink ("Must remain seated while eating.") and food with a buff ("well fed")
 local function tipFlags(tt)
   local name = tt and tt.GetName and tt:GetName()
-  if not name or not tt.NumLines then return false, false end
-  local bound, starts = false, false
+  if not name or not tt.NumLines then return false, false, false, false end
+  local bound, starts, seated, buff = false, false, false, false
   for i = 2, tt:NumLines() do
     local fs = _G[name .. "TextLeft" .. i]
     local t = fs and fs.GetText and fs:GetText()
     if type(t) == "string" and not (FLT.IsSecret and FLT.IsSecret(t)) then
       if t == ITEM_SOULBOUND or t == ITEM_ACCOUNTBOUND or t == ITEM_BNETACCOUNTBOUND then bound = true end
       if t == ITEM_STARTS_QUEST then starts = true end
+      local low = t:lower()
+      if low:find("must remain seated", 1, true) then seated = true end
+      if low:find("well fed", 1, true) then buff = true end
     end
   end
-  return bound, starts
+  return bound, starts, seated, buff
 end
 
 -- Selling -----------------------------------------------------------------------------------
@@ -199,7 +212,7 @@ function BA.Advice(id, link, tt)
   if not name then return nil end -- not in the client's cache yet
   quality, price, minLevel = quality or 1, price or 0, minLevel or 0
   local count = math.max(1, itemCount(id))
-  local tipBound, starts = tipFlags(tt)
+  local tipBound, starts, seated, wellFed = tipFlags(tt)
   local bound = tipBound or bind == 1 or bind == 4
   local level = UnitLevel and UnitLevel("player") or 0
 
@@ -322,6 +335,12 @@ function BA.Advice(id, link, tt)
   -- the rest by item class
   if classID == 0 then
     if minLevel > level then return with(L["Keep (put it in your bank)"], string.format(L["usable at level %d"], minLevel)), "keep" end
+    -- plain food and drink come in steps of 10 levels: 10 levels under yours there is better at every merchant.
+    -- Food with a buff and cooked food stay (a buff is worth more than the health).
+    if (subID == 5 or seated) and not wellFed and not cookedFood(id) and minLevel <= level - 10 then
+      if price > 0 then return with(string.format(L["Sell to a merchant (%s)"], money(price * count)), L["low-level food or drink, merchants sell better for your level"]), "sell" end
+      return with(L["Destroy it"], L["low-level food or drink, merchants sell better for your level"]), "drop"
+    end
     return with(L["Keep"], L["a consumable you can use"]), "keep"
   end
   if classID == 13 then return with(L["Keep"], L["a key"]), "keep" end
