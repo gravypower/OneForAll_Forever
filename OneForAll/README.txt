@@ -13,6 +13,7 @@ Commands
 /oneforall profdata      Show embedded profession-data status
 /oneforall portraits     Show which source each boss portrait came from
 /oneforall craft         Open/close the Crafting List
+/oneforall bags          Open/close "Clear my bags": what the Bag advice would take out of your bags
 /oneforall setup         Open the welcome setup again
 /oneforall dmap         Open the dungeon map like M does in a dungeon (for testing)
 /oneforall where         Print the current map and coordinates (to report wrong map pins)
