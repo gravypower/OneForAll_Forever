@@ -140,6 +140,7 @@ UI\GearValue.lua
 UI\GearMarks.lua
 UI\BagAdvice.lua
 UI\BagActions.lua
+UI\BagMarks.lua
 UI\Armory.lua
 UI\QuestShare.lua
 TalentData.lua
