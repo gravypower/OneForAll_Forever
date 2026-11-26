@@ -249,6 +249,7 @@ local function advise(id, link, f)
   f = f or NOFLAGS
   local starts, seated, wellFed = f.starts, f.seated, f.wellFed
   local bound = f.bound or bind == 1 or bind == 4
+  A.bound = bound
   local level = UnitLevel and UnitLevel("player") or 0
 
   -- tools, the hearthstone, fishing poles
@@ -302,7 +303,7 @@ local function advise(id, link, f)
     local text, k = sell(id, price, count, bound, quality)
     local why = can and L["not an upgrade for you"] or L["your class cannot use it"]
     if mySkill("Enchanting") and quality >= 2 and (classID == 2 or classID == 4) then
-      A.act = nil -- your choice: no button sells it
+      A.act, A.choice = nil, true -- your choice: no button sells it, and it is not sent to the bank alt
       return with(text and (L["Disenchant it"] .. " / " .. text) or L["Disenchant it"], why), "sell"
     end
     if text then return with(text, why), k end
@@ -437,11 +438,31 @@ local function advise(id, link, f)
 end
 
 -- text, kind (COLOR), act, to, toName (see A above); f = flags (tipFlags / BA.SlotFlags)
+-- With a bank alt (BA.BankAlt) what would go to the bank or the auction house is mailed to it instead: 6th value true.
 function BA.Advice(id, link, f)
-  A.act, A.to, A.toName = nil, nil, nil
+  A.act, A.to, A.toName, A.bound, A.choice = nil, nil, nil, nil, nil
   local text, kind = advise(id, link, f)
   if not text then return nil end
+  local alt = not A.bound and not A.choice and (A.act == "bank" or (kind == "sell" and not A.act)) and BA.BankAlt()
+  if alt then
+    -- the price stays for what is to be sold; of a "keep" only the reason
+    local rest = kind == "sell" and text or text:match(" %- (.+)$")
+    return with(string.format(L["Mail it to %s (your bank alt)"], alt), rest), "keep", "mail", alt, alt, true
+  end
   return text, kind, A.act, A.to, A.toName
+end
+-- The bank alt: the character that gets what is worth keeping or auctioning (Quality of Life > Tooltips > "Bank alt",
+-- QoL key bankAlt = its name as typed for a mail). nil when none is set or this character is the bank alt itself.
+function BA.BankAlt()
+  local name = Q("bankAlt")
+  if type(name) ~= "string" then return nil end
+  name = name:match("^%s*(.-)%s*$")
+  if name == "" then return nil end
+  local low = name:lower()
+  local me = UnitName and UnitName("player")
+  local full = type(OneForAllCharDB) == "table" and OneForAllCharDB.fullName
+  if (type(me) == "string" and me:lower() == low) or (type(full) == "string" and full:lower() == low) then return nil end
+  return name
 end
 
 -- Bags and bank -------------------------------------------------------------------------------

@@ -7,6 +7,7 @@ local L = FLT.L or setmetatable({}, { __index = function(_, k) return k end }) -
 --    junk list are sold), never what the advice would rather see in the auction house.
 --  * at the bank: "Put 5 items in the bank" - what the advice marks "put it in your bank".
 --  * at the mailbox: "Mail 4 items to Banky" - fills the name and attaches the items; you click Send yourself.
+--    To the bank alt (QoL bankAlt, a name the player typed): "Send 12 items to Banky" sends the mail at once.
 -- Quality of Life > Tooltips > "Bag advice buttons" (QoL key bagAdviceButtons, needs "Bag advice"), off by default.
 -- The button shows what it will take when the mouse is over it.
 
@@ -36,7 +37,7 @@ function AC.Plan(act)
     for slot = 1, BA.NumSlots(bag) do
       local i = slotInfo(bag, slot)
       if i and i.itemID and i.hyperlink and not i.isLocked then
-        local _, _, a, to, toName = BA.Advice(i.itemID, i.hyperlink, BA.SlotFlags(bag, slot, i))
+        local _, _, a, to, toName, toBank = BA.Advice(i.itemID, i.hyperlink, BA.SlotFlags(bag, slot, i))
         if a == act then
           local _, _, quality, _, _, _, _, _, loc, _, price = get(i.hyperlink)
           local n = i.stackCount or 1
@@ -45,7 +46,7 @@ function AC.Plan(act)
           local gear = loc and loc ~= "" and loc ~= "INVTYPE_BAG" and loc ~= "INVTYPE_AMMO" and (quality or 9) > 0
             and not (Q("sellJunk") and FLT.QoL.IsJunk and FLT.QoL.IsJunk(i.itemID))
           if act ~= "vendor" or ((quality or 9) <= 2 and (price or 0) > 0 and not i.hasNoValue and not gear) then
-            list[#list + 1] = { bag = bag, slot = slot, link = i.hyperlink, n = n, value = (price or 0) * n, to = to, toName = toName }
+            list[#list + 1] = { bag = bag, slot = slot, link = i.hyperlink, n = n, value = (price or 0) * n, to = to, toName = toName, toBank = toBank }
           end
         end
       end
@@ -101,7 +102,10 @@ local PLACES = {
   bank = { act = "bank", frame = function() return BankFrame end,
     label = function(list) return #list == 1 and L["Put 1 item in the bank"] or string.format(L["Put %d items in the bank"], #list) end },
   mail = { act = "mail", frame = function() return MailFrame end,
-    label = function(list) return string.format(#list == 1 and L["Mail 1 item to %s"] or L["Mail %d items to %s"], #list == 1 and list[1].to or #list, list[1].to) end },
+    label = function(list)
+      if list[1].toBank then return string.format(#list == 1 and L["Send 1 item to %s"] or L["Send %d items to %s"], #list == 1 and list[1].to or #list, list[1].to) end
+      return string.format(#list == 1 and L["Mail 1 item to %s"] or L["Mail %d items to %s"], #list == 1 and list[1].to or #list, list[1].to)
+    end },
 }
 
 local function sellNow(list)
@@ -139,8 +143,21 @@ local function click()
     -- the "Send Mail" page with the name; the items are attached, sending stays with the player
     if MailFrameTab_OnClick then pcall(MailFrameTab_OnClick, nil, 2) end
     if SendMailNameEditBox and SendMailNameEditBox.SetText then SendMailNameEditBox:SetText(list[1].toName or "") end
-    local to = list[1].to
+    local to, name, auto = list[1].to, list[1].toName, list[1].toBank
     run(list, function() return place == "mail" and shown(SendMailFrame) end, function(n)
+      -- the bank alt (a name you typed yourself): sent at once; another character: you check the name and send
+      if auto and SendMail and C_Timer and C_Timer.After then
+        C_Timer.After(0.4, function()
+          if not (place == "mail" and shown(SendMailFrame)) then return end
+          local cost = GetSendMailPrice and GetSendMailPrice() or 0
+          if GetMoney and cost > GetMoney() then msg(L["Not enough money for the postage."]) return end
+          local subject = SendMailSubjectEditBox and SendMailSubjectEditBox.GetText and SendMailSubjectEditBox:GetText()
+          if not subject or subject == "" then subject = "OneForAll" end
+          SendMail(name, subject, "")
+          msg(string.format(n == 1 and L["Sent 1 item to %s."] or L["Sent %d items to %s."], n == 1 and to or n, to))
+        end)
+        return
+      end
       msg(string.format(n == 1 and L["Attached 1 item for %s - check the name and click Send."] or L["Attached %d items for %s - check the name and click Send."], n == 1 and to or n, to))
     end)
   end
@@ -165,7 +182,10 @@ local function refresh()
         if i > 20 then GameTooltip:AddLine(string.format(L["... and %d more"], #items - 20), 0.7, 0.7, 0.7); break end
         GameTooltip:AddLine(e.link .. (e.n > 1 and (" x" .. e.n) or ""), 1, 1, 1)
       end
-      if place == "mail" then GameTooltip:AddLine(L["Fills the name and attaches the items. You click Send."], 0.7, 0.7, 0.7, true) end
+      if place == "mail" then
+        GameTooltip:AddLine(items[1] and items[1].toBank and L["Sends these items to your bank alt at once (12 per mail: click again for the next)."]
+          or L["Fills the name and attaches the items. You click Send."], 0.7, 0.7, 0.7, true)
+      end
       if place == "merchant" then GameTooltip:AddLine(L["Asks before it sells."], 0.7, 0.7, 0.7, true) end
       GameTooltip:Show()
     end)
@@ -194,7 +214,7 @@ local OPEN = { MERCHANT_SHOW = "merchant", BANKFRAME_OPENED = "bank", MAIL_SHOW 
 local CLOSE = { MERCHANT_CLOSED = "merchant", BANKFRAME_CLOSED = "bank", MAIL_CLOSED = "mail" }
 local ev = CreateFrame("Frame")
 for _, e in ipairs({ "MERCHANT_SHOW", "MERCHANT_CLOSED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "MAIL_SHOW", "MAIL_CLOSED",
-  "BAG_UPDATE_DELAYED" }) do pcall(ev.RegisterEvent, ev, e) end
+  "BAG_UPDATE_DELAYED", "MAIL_SEND_SUCCESS", "MAIL_FAILED" }) do pcall(ev.RegisterEvent, ev, e) end
 ev:SetScript("OnEvent", function(_, event)
   if OPEN[event] then place = OPEN[event]
   elseif CLOSE[event] then
@@ -206,6 +226,7 @@ end)
 -- the switches (Quality of Life): show / hide at once
 if FLT.QoL and FLT.QoL.On then
   FLT.QoL.On("bagAdviceButtons", later)
+  FLT.QoL.On("bankAlt", function() later(); if FLT.BagMarks then FLT.BagMarks.Refresh() end end)
 end
 
 AC._click, AC._ev = click, ev -- tests
